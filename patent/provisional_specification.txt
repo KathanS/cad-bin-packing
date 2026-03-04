@@ -1,0 +1,113 @@
+Title: Completion-Aware Decreasing (CAD) Method for One-Dimensional Bin Packing
+Inventor: Kathan Sanghavi
+Date: March 4, 2026
+
+Technical Field
+This invention relates to combinatorial optimization, specifically one-dimensional bin packing heuristics for assigning items to fixed-capacity bins with reduced total waste and fewer bins used.
+
+Background
+Classical decreasing heuristics (First-Fit Decreasing, Best-Fit Decreasing, Modified FFD) place items in descending order and do not immediately complete partially filled bins using future items. This causes missed pairing opportunities and avoidable residual waste.
+
+Summary of Invention
+The invention introduces a polynomial-time heuristic called Completion-Aware Decreasing (CAD).
+CAD augments decreasing-order placement with an immediate completion step after each placement.
+After an item is placed into a target bin, the method searches remaining unplaced items for:
+1) one item that tightly fills residual capacity, and
+2) if needed, two items that tightly fill residual capacity,
+subject to acceptance thresholds on residual waste.
+
+Core Method
+Input:
+- Item sizes s_i in (0, C]
+- Bin capacity C
+- Thresholds: alpha (single completion tolerance), beta (pair completion tolerance), gamma (minimum first-item ratio in pair search)
+
+Procedure:
+1. Sort items by decreasing size.
+2. For each unplaced item in sorted order:
+   a. Place item into the best-fit bin (or open new bin).
+   b. Compute residual r in target bin.
+   c. Single completion search:
+      - Find unplaced item with size <= r minimizing (r - size).
+      - If waste <= alpha * r, place it.
+   d. Pair completion search (if residual remains):
+      - Search unplaced pairs (x, y), x + y <= r.
+      - Optional pruning: require x >= gamma * r.
+      - If pair waste <= beta * r, place pair.
+3. Place any remaining items using fallback first-fit.
+
+Complexity
+Time: O(n^2)
+Space: O(n)
+
+Default Embodiment Parameters
+- alpha = 0.15
+- beta = 0.10
+- gamma = 0.25
+
+Alternative Embodiments
+- Use first-fit or other placement rules instead of best-fit.
+- Use dynamic thresholds learned from item distribution.
+- Extend completion search depth beyond two items with bounded search budget.
+- Use balanced trees or indexed buckets to reduce constants in completion lookup.
+- Apply to weighted objective variants minimizing costed waste.
+
+Experimental Evidence (Representative)
+- Hard-150 instances (50 trials each):
+  n=60:  FFD 1.0208 vs CAD 1.0085
+  n=100: FFD 1.0198 vs CAD 1.0084
+  n=200: FFD 1.0156 vs CAD 1.0075
+  n=300: FFD 1.0138 vs CAD 1.0065
+  n=500: FFD 1.0128 vs CAD 1.0057
+- Aggregate hard-set significance: p < 1e-33 (Wilcoxon)
+- Approximate 55% reduction in waste relative to lower bound vs FFD on hard instances.
+
+Industrial Applicability
+- Logistics containerization
+- Warehouse slotting and palletization
+- Cloud VM placement
+- Manufacturing and cutting-stock pre-packing
+
+Claim Set (Draft)
+Claim 1 (Independent):
+A computer-implemented method for bin packing comprising:
+- sorting items by decreasing size;
+- placing each selected item into a bin according to a decreasing-order placement rule;
+- after each placement, executing a completion operation that searches among unplaced items for one-item or two-item combinations that fit residual capacity of the same bin within a residual threshold; and
+- accepting such combination when the threshold condition is satisfied,
+wherein resulting packing uses fewer bins on average than a baseline decreasing heuristic on representative benchmark distributions.
+
+Claim 2:
+The method of claim 1 wherein the placement rule is best-fit decreasing.
+
+Claim 3:
+The method of claim 1 wherein single-item completion is accepted when waste <= alpha*r.
+
+Claim 4:
+The method of claim 1 wherein two-item completion is accepted when waste <= beta*r.
+
+Claim 5:
+The method of claim 1 wherein pair search is pruned by requiring first pair item >= gamma*r.
+
+Claim 6:
+The method of claim 1 wherein fallback placement for unassigned items is first-fit.
+
+Claim 7:
+The method of claim 1 implemented in software stored on a non-transitory computer-readable medium.
+
+Claim 8:
+A system comprising memory and processor configured to execute the method of claim 1.
+
+Figures (Suggested)
+Fig. 1: Baseline decreasing placement flowchart.
+Fig. 2: CAD flowchart with single/pair completion.
+Fig. 3: Residual capacity and completion acceptance diagram.
+Fig. 4: Comparative ratio table vs FFD/BFD/MFFD.
+
+Enablement Notes
+Code and benchmark datasets in repository:
+https://github.com/KathanS/cad-bin-packing
+
+Legal Note
+This is a technical draft for a provisional filing package and not legal advice.
+Consult a registered patent attorney/agent before non-provisional filing.

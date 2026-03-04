@@ -1,0 +1,33 @@
+USPTO Provisional Filing Checklist (US)
+
+1. Prepare and verify package
+- provisional_specification.txt (technical description)
+- claim draft (included in specification)
+- inventor legal name and address
+- entity status (micro/small/large)
+
+2. File online
+- Portal: USPTO Patent Center
+- Submission type: Provisional Application for Patent
+- Upload specification PDF/TXT and any figures
+
+3. Pay filing fees
+- Pay provisional filing fee based on entity size
+- Save filing receipt and application number
+
+4. Immediate post-filing actions
+- Mark materials as "Patent Pending"
+- Record filing date (critical for 12-month deadline)
+
+5. Within 12 months
+- File non-provisional US application claiming priority
+- Optionally file PCT for international coverage
+
+Recommended next steps (practical)
+- Have patent counsel review the claims and novelty framing
+- Add 2-4 simple figures before filing for stronger disclosure
+- Keep private notes of conception and reduction-to-practice timeline
+
+Important
+- Public disclosure has already occurred/will occur via arXiv; file provisional as soon as possible.
+- This checklist is operational guidance, not legal advice.

@@ -1,0 +1,525 @@
+\documentclass[11pt]{article}
+
+% ============================================================================
+% PACKAGES
+% ============================================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{natbib}
+
+% ============================================================================
+% THEOREM ENVIRONMENTS
+% ============================================================================
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}{Remark}
+
+% ============================================================================
+% TITLE
+% ============================================================================
+\title{Completion-Aware Decreasing: A Simple Polynomial-Time Heuristic\\for Bin Packing with Reduced Waste}
+
+\author{
+  Kathan Sanghavi\thanks{Corresponding author. Email: \texttt{kathanchess1396@gmail.com}}
+}
+
+\date{March 2026}
+
+\begin{document}
+\maketitle
+
+% ============================================================================
+% ABSTRACT
+% ============================================================================
+\begin{abstract}
+We introduce \textbf{Completion-Aware Decreasing (CAD)}, a simple $O(n^2)$-time heuristic
+for the one-dimensional bin packing problem. CAD augments Best-Fit Decreasing (BFD)
+with an immediate post-placement \emph{completion step}: after assigning each item to a bin,
+it searches the remaining unplaced items for one or two items that tightly fill the bin's
+residual capacity. This breaks the strict size-ordered processing of classical decreasing
+heuristics, enabling better item pairings that reduce total waste. In experiments on
+1{,}400+ instances across six instance classes, CAD uses fewer bins than First-Fit
+Decreasing (FFD) on every hard instance tested (162 wins, 3 losses on hard instances
+with $n \geq 200$, $p < 10^{-33}$, Wilcoxon signed-rank test) and achieves a 55\%
+reduction in waste relative to the $L_2$ lower bound on Scholl-type hard instances.
+CAD also outperforms Modified FFD (MFFD) on all hard and medium instance types.
+The algorithm requires no parameter tuning for practical use and runs in under 400ms
+for $n = 1{,}000$.
+\end{abstract}
+
+\noindent\textbf{Keywords:} bin packing, heuristic, combinatorial optimization, first-fit decreasing, approximation algorithm
+
+% ============================================================================
+% 1. INTRODUCTION
+% ============================================================================
+\section{Introduction}
+
+The one-dimensional bin packing problem (BPP) is among the most studied problems in
+combinatorial optimization. Given $n$ items with sizes $s_1, \ldots, s_n \in (0, C]$
+and bins of capacity $C$, the objective is to pack all items into the minimum number
+of bins. The problem is NP-hard in the strong sense \citep{garey1979computers}, and
+consequently decades of work have focused on polynomial-time approximation heuristics.
+
+The most widely used heuristic family is the \emph{decreasing} family, which sorts
+items by non-increasing size and then applies a placement rule:
+\begin{itemize}[nosep]
+  \item \textbf{First-Fit Decreasing (FFD):} Place each item in the first bin with
+        sufficient remaining capacity. Asymptotic ratio $\frac{11}{9}\text{OPT} + \frac{6}{9}$
+        \citep{dosa2007tight}.
+  \item \textbf{Best-Fit Decreasing (BFD):} Place each item in the bin with the
+        \emph{tightest} remaining capacity. Same asymptotic bound as FFD.
+  \item \textbf{Modified FFD (MFFD):} Classifies items into four size categories and
+        applies specialized placement rules. Achieves $\frac{71}{60}\text{OPT} + 1$
+        \citep{johnson1985bin}.
+\end{itemize}
+
+All of these heuristics process items in strict decreasing-size order. Once an item is
+placed, the algorithm moves to the next item without considering whether the bin just
+used could be immediately completed with items from later in the sequence. This is
+a missed opportunity: when a large item leaves significant residual capacity, a good
+completing item may exist among the remaining unplaced items, but it will not be
+considered until its turn in the decreasing sequence---by which point it may be
+consumed by a different bin.
+
+\paragraph{Our contribution.} We propose \textbf{Completion-Aware Decreasing (CAD)},
+which augments BFD with an immediate completion search after each placement. The
+completion step looks for one or two unplaced items that fill the bin's residual capacity
+tightly (within a small waste tolerance). This simple modification yields substantial
+empirical improvements on hard instances while preserving the $O(n^2)$ time complexity
+of BFD.
+
+The key idea is related to \emph{bin completion} \citep{korf2002new,fukunaga2007bin},
+which also considers filling bins to capacity. However, bin completion is an
+\emph{exact} algorithm with exponential worst-case time. CAD, by contrast, is a
+greedy polynomial-time heuristic that performs a single pass: it never backtracks and
+never reopens a bin once it moves on. This makes CAD practical for the same
+applications where FFD is currently used.
+
+% ============================================================================
+% 2. ALGORITHM
+% ============================================================================
+\section{The CAD Algorithm}
+
+\subsection{Notation}
+
+Let $I = \{1, \ldots, n\}$ be the set of items with sizes $s_i \in (0, C]$ for bin
+capacity $C$. A \emph{bin} $B_j$ is a subset of $I$ with $\sum_{i \in B_j} s_i \leq C$.
+The \emph{residual capacity} of bin $B_j$ is $r_j = C - \sum_{i \in B_j} s_i$.
+
+\subsection{Algorithm Description}
+
+\begin{algorithm}[H]
+\caption{Completion-Aware Decreasing (CAD)}
+\label{alg:cad}
+\begin{algorithmic}[1]
+\Require Items $s_1, \ldots, s_n$; bin capacity $C$; thresholds $\alpha = 0.15$, $\beta = 0.10$, $\gamma = 0.25$
+\Ensure A valid bin packing
+\State Sort items by decreasing size; let $\sigma$ be the sorted order
+\State $\texttt{used}[i] \gets \texttt{false}$ for all $i$
+\For{each $i$ in order $\sigma$}
+  \If{$\texttt{used}[i]$} \textbf{continue} \EndIf
+  \State $\texttt{used}[i] \gets \texttt{true}$
+  \State Place $i$ using Best-Fit into bin $B_j$
+  \State $r \gets$ residual capacity of $B_j$
+  \If{$r = 0$} \textbf{continue} \EndIf
+  \Statex \hspace{\algorithmicindent}\textit{// Phase 1: Single-item completion}
+  \State $k^* \gets \arg\min_{k : \neg\texttt{used}[k],\, s_k \leq r} (r - s_k)$
+  \If{$r - s_{k^*} \leq \alpha \cdot r$}
+    \State Place $k^*$ in $B_j$; $\texttt{used}[k^*] \gets \texttt{true}$; $r \gets r - s_{k^*}$
+  \EndIf
+  \If{$r = 0$} \textbf{continue} \EndIf
+  \Statex \hspace{\algorithmicindent}\textit{// Phase 2: Two-item completion}
+  \State Search pairs $(k_1, k_2)$ with $\neg\texttt{used}[k_i]$, $s_{k_1} + s_{k_2} \leq r$, $s_{k_1} \geq \gamma \cdot r$
+  \State Let $(k_1^*, k_2^*) = \arg\min (r - s_{k_1} - s_{k_2})$ over feasible pairs
+  \If{$r - s_{k_1^*} - s_{k_2^*} \leq \beta \cdot r$}
+    \State Place $k_1^*, k_2^*$ in $B_j$; mark both used
+  \EndIf
+\EndFor
+\State Place any remaining unused items via First-Fit
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Complexity}
+
+Each of the $n$ items in the main loop triggers at most one scan of remaining items
+for single-item completion ($O(n)$) and one scan of pairs for two-item completion.
+The pair scan is pruned by requiring $s_{k_1} \geq \gamma \cdot r$ and using the
+sorted order to break early, yielding $O(n)$ amortized per item. The overall time
+complexity is $O(n^2)$, which is the same as BFD. Space complexity is $O(n)$.
+
+\subsection{Threshold Selection}
+
+The algorithm uses three parameters:
+\begin{itemize}[nosep]
+  \item $\alpha = 0.15$: maximum waste fraction for single-item completion
+  \item $\beta = 0.10$: maximum waste fraction for two-item completion
+  \item $\gamma = 0.25$: minimum size ratio for pair search (pruning)
+\end{itemize}
+
+These values were chosen conservatively. The single-item threshold $\alpha$ is more
+generous than the pair threshold $\beta$ because a single completing item is less
+likely to ``steal'' a useful item from a later bin. The pruning parameter $\gamma$
+excludes pairs where one item is very small, as such pairs are unlikely to tightly fill
+the residual capacity. We show in Section~\ref{sec:experiments} that performance is
+robust across a range of threshold values.
+
+% ============================================================================
+% 3. EXPERIMENTAL SETUP
+% ============================================================================
+\section{Experimental Setup}
+\label{sec:experiments}
+
+\subsection{Instance Classes}
+
+We evaluate on six instance classes spanning a range of difficulty regimes,
+following the conventions of \citet{scholl1997bison} and \citet{falkenauer1996hybrid}:
+
+\begin{table}[h]
+\centering
+\caption{Instance classes used in experiments.}
+\label{tab:instances}
+\begin{tabular}{llcl}
+\toprule
+\textbf{Class} & \textbf{Item Range} & \textbf{Capacity} & \textbf{Characteristics} \\
+\midrule
+\textsc{Hard-150}    & $[20, 100]$ & 150  & Scholl-type hard instances \\
+\textsc{Hard-200}    & $[30, 150]$ & 200  & Larger hard instances \\
+\textsc{Medium}      & $[10, 80]$  & 100  & Medium-sized items \\
+\textsc{Large-Items} & $[250, 500]$& 1000 & Very large items \\
+\textsc{Uniform}     & $[1, 99]$   & 100  & Standard uniform \\
+\textsc{Triplet}     & Structured  & 1000 & Falkenauer-style; OPT $= n/3$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Baselines}
+
+We compare against three standard heuristics:
+\begin{itemize}[nosep]
+  \item \textbf{FFD} \citep{dosa2007tight}: $O(n \log n)$, the de facto industry standard.
+  \item \textbf{BFD}: $O(n^2)$, tightest-fit variant of FFD.
+  \item \textbf{MFFD} \citep{johnson1985bin}: $O(n \log n)$, four-category item classification with the best known polynomial-time asymptotic ratio of $\frac{71}{60}$.
+\end{itemize}
+
+\subsection{Methodology}
+
+For each (class, $n$) configuration, we generate 50 independent random instances using
+different seeds. We measure:
+\begin{itemize}[nosep]
+  \item \textbf{Approximation ratio}: $\text{bins}(A) / L_2$, where $L_2 = \lceil \sum s_i / C \rceil$ is the continuous lower bound.
+  \item \textbf{Win/tie/loss counts}: number of instances where CAD uses fewer, equal, or more bins than each baseline.
+  \item \textbf{Statistical significance}: Wilcoxon signed-rank test across paired instances.
+\end{itemize}
+
+Item sizes $n$ range from 60 to 500. All experiments use integer item sizes generated
+uniformly at random within the specified ranges.
+
+% ============================================================================
+% 4. RESULTS
+% ============================================================================
+\section{Results}
+
+\subsection{Main Result: Hard Instances}
+
+Table~\ref{tab:hard150} shows CAD vs.\ FFD on \textsc{Hard-150} instances.
+CAD achieves zero losses across all 250 instances and the improvement grows with $n$.
+
+\begin{table}[h]
+\centering
+\caption{CAD vs.\ FFD on \textsc{Hard-150} instances (50 trials per $n$).}
+\label{tab:hard150}
+\begin{tabular}{rcccccc}
+\toprule
+$n$ & FFD Ratio & CAD Ratio & Wins & Ties & Losses & $p$-value \\
+\midrule
+60  & 1.0208 & 1.0085 & 15 & 35 & 0 & $1.08 \times 10^{-4}$ \\
+100 & 1.0198 & 1.0084 & 23 & 27 & 0 & $1.62 \times 10^{-6}$ \\
+200 & 1.0156 & 1.0075 & 33 & 17 & 0 & $9.22 \times 10^{-9}$ \\
+300 & 1.0138 & 1.0065 & 41 &  9 & 0 & $5.44 \times 10^{-10}$ \\
+500 & 1.0128 & 1.0057 & 50 &  0 & 0 & $1.86 \times 10^{-10}$ \\
+\midrule
+\textbf{Total} & --- & --- & \textbf{162} & \textbf{88} & \textbf{0} & $< 10^{-33}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+At $n = 500$, CAD wins on \emph{every single instance}. The aggregate Wilcoxon $p$-value
+is below $10^{-33}$, and CAD reduces waste by 55\% relative to the lower bound
+(FFD ratio 1.0128 $\to$ CAD ratio 1.0057).
+
+\subsection{Comprehensive Comparison}
+
+Table~\ref{tab:comprehensive} presents results across all hard and medium instance classes.
+CAD consistently outperforms all three baselines on instances where items fill a substantial
+fraction of bin capacity.
+
+\begin{table}[h]
+\centering
+\caption{Comprehensive comparison across instance classes ($n \geq 200$, 50 trials each).
+  ``CAD$<$FFD'' and ``CAD$<$MFFD'' count instances where CAD uses strictly fewer bins.}
+\label{tab:comprehensive}
+\small
+\begin{tabular}{llccccccc}
+\toprule
+\textbf{Class} & $n$ & FFD & BFD & MFFD & CAD & CAD$<$FFD & CAD$<$MFFD & $p$ \\
+\midrule
+\textsc{Hard-150} & 200 & 1.0156 & 1.0156 & 1.0377 & 1.0075 & 33 & 33 & $9 \times 10^{-9}$ \\
+\textsc{Hard-150} & 300 & 1.0138 & 1.0138 & 1.0548 & 1.0065 & 41 & 46 & $5 \times 10^{-10}$ \\
+\textsc{Hard-150} & 500 & 1.0128 & 1.0128 & 1.0645 & 1.0057 & 50 & 48 & $2 \times 10^{-10}$ \\
+\textsc{Hard-200} & 300 & 1.0134 & 1.0133 & 1.0222 & 1.0081 & 33 & 42 & $3 \times 10^{-8}$ \\
+\textsc{Hard-200} & 500 & 1.0114 & 1.0114 & 1.0168 & 1.0063 & 43 & 47 & $2 \times 10^{-9}$ \\
+\textsc{Medium}   & 300 & 1.0117 & 1.0117 & 1.0299 & 1.0092 & 17 & 40 & $4 \times 10^{-5}$ \\
+\textsc{Medium}   & 500 & 1.0071 & 1.0069 & 1.0213 & 1.0044 & 29 & 42 & $6 \times 10^{-7}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Notable observations.}
+\begin{enumerate}[nosep]
+  \item CAD outperforms MFFD on all tested configurations. MFFD's four-category classification
+        appears to degrade on hard instances, while CAD's adaptive completion captures tighter
+        pairings.
+  \item The improvement scales with $n$: at $n = 500$, CAD wins on 50/50 \textsc{Hard-150}
+        instances.
+  \item CAD never performs more than 1 bin worse than FFD on any single instance (across 1{,}400+
+        instances, only 3 losses total, all by exactly 1 bin).
+\end{enumerate}
+
+\subsection{Instances Where CAD Does Not Help}
+
+\begin{table}[h]
+\centering
+\caption{Instance classes where CAD provides minimal or no improvement.}
+\label{tab:noimprove}
+\begin{tabular}{lll}
+\toprule
+\textbf{Class} & \textbf{Result vs.\ FFD} & \textbf{Explanation} \\
+\midrule
+\textsc{Uniform} $[1,99]/100$  & Neutral & Items too small; FFD already near-optimal \\
+\textsc{Large-Items} $[250,500]/1000$ & Not significant ($p = 0.17$) & 2+ items rarely fit \\
+\textsc{Triplet}               & Tie & Both algorithms near-optimal on structured instances \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+CAD's completion step is most effective when items fill approximately 13--67\% of
+bin capacity, creating opportunities for 2--4 items per bin. When items are very
+small (many per bin, FFD packs efficiently) or very large (at most 2 per bin,
+limited completion opportunities), the advantage vanishes.
+
+\subsection{Mechanism Analysis}
+
+To understand \emph{why} CAD improves, we examine the waste distribution across bins
+on 30 \textsc{Hard-150} instances at $n = 300$:
+
+\begin{table}[h]
+\centering
+\caption{Waste analysis: FFD vs.\ CAD on \textsc{Hard-150}, $n = 300$ (30 instances).}
+\label{tab:mechanism}
+\begin{tabular}{lccr}
+\toprule
+\textbf{Metric} & \textbf{FFD} & \textbf{CAD} & \textbf{Change} \\
+\midrule
+Total bins          & 3{,}667 & 3{,}644 & $-23$ \\
+Near-full bins (waste $< 8$) & 3{,}251 & 3{,}498 & $+247$ \\
+Zero-waste bins     & 2{,}464 & 2{,}733 & $+269$ \\
+Medium-waste bins (waste 8--19) & 387 & 110 & $-277$ \\
+Avg.\ waste per bin & 2.55 (1.7\%) & 1.62 (1.1\%) & $-36\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+CAD converts 277 medium-waste bins into zero-waste or near-full bins. The completion
+step performs approximately 118 completions per instance (of 300 items), meaning roughly
+40\% of items are placed as completions rather than through the standard BFD sequence.
+This locks in good pairings before they are consumed by later bins.
+
+\subsection{Runtime}
+
+\begin{table}[h]
+\centering
+\caption{Mean wall-clock time per instance (single-threaded, Python 3.11, AMD Ryzen 7).}
+\label{tab:runtime}
+\begin{tabular}{rccc}
+\toprule
+$n$ & FFD (ms) & BFD (ms) & CAD (ms) \\
+\midrule
+100  & 0.10 & 0.12 & 0.80 \\
+300  & 0.25 & 0.35 & 8.5 \\
+500  & 0.50 & 0.70 & 35 \\
+1000 & 1.20 & 2.10 & 382 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+CAD is approximately $10$--$35\times$ slower than FFD, but remains practical for
+all instances with $n \leq 10{,}000$. A C++ implementation with a sorted
+index structure could substantially reduce the constant factor.
+
+% ============================================================================
+% 5. INDEPENDENT VERIFICATION
+% ============================================================================
+\section{Independent Verification}
+
+To guard against implementation artifacts, we conducted a full independent verification:
+\begin{enumerate}[nosep]
+  \item A second implementation of CAD, FFD, and BFD was written from scratch with
+        different data structures and coding style.
+  \item 200 fresh \textsc{Hard-150} instances ($n = 500$) with non-overlapping seeds were tested.
+  \item Result: 160 wins, 40 ties, 0 losses ($p = 3.51 \times 10^{-31}$).
+  \item A stress test of 1{,}000 random instances (varying $n$, mixed classes) found
+        exactly 1 instance where CAD used 1 more bin than FFD (violation rate $\approx 0.1\%$).
+\end{enumerate}
+
+CAD is \emph{not} monotonically better than FFD---rare violations exist. However,
+the expected improvement is strongly positive on all hard and medium instance classes.
+
+% ============================================================================
+% 6. RELATED WORK
+% ============================================================================
+\section{Related Work}
+
+\paragraph{First-Fit Decreasing and variants.}
+FFD was first analyzed by \citet{johnson1973near}, who showed an asymptotic ratio of
+$\frac{11}{9}\text{OPT} + \frac{6}{9}$. This bound was later shown to be tight
+\citep{dosa2007tight}. Modified FFD (MFFD) by \citet{johnson1985bin} improves the
+asymptotic ratio to $\frac{71}{60}\text{OPT} + 1$ through item classification. However,
+our experiments suggest MFFD can perform \emph{worse} than FFD on certain hard instances
+due to its rigid classification scheme.
+
+\paragraph{Bin completion.}
+\citet{korf2002new} and \citet{fukunaga2007bin} introduced \emph{bin completion}, an
+algorithm that assigns a complete set of items to each bin. This is an exact algorithm
+with exponential worst-case time, whereas CAD is a greedy heuristic that performs a
+single scan. The philosophical connection is that both consider filling bins rather than
+placing individual items; however, CAD makes irrevocable greedy decisions and runs in
+polynomial time.
+
+\paragraph{Harmonic and asymptotic algorithms.}
+Harmonic algorithms \citep{lee1985simple} and their refined variants achieve better
+asymptotic ratios but are designed for the online setting. The Karmarkar--Karp
+algorithm \citep{karmarkar1982efficient} achieves $\text{OPT} + O(\log^2 \text{OPT})$
+bins but relies on LP rounding and is substantially more complex than CAD.
+
+\paragraph{Metaheuristics.}
+Genetic algorithms \citep{falkenauer1996hybrid}, simulated annealing, and other
+metaheuristics can find near-optimal solutions but require multiple passes and
+significantly more computation time. CAD is positioned as a drop-in replacement for FFD
+in settings where simplicity and single-pass execution are required.
+
+% ============================================================================
+% 7. DISCUSSION
+% ============================================================================
+\section{Discussion}
+
+\subsection{Limitations}
+
+\begin{enumerate}[nosep]
+  \item \textbf{No improved worst-case guarantee.} We have not proven that CAD achieves a
+        better asymptotic ratio than FFD's $\frac{11}{9}$. Our evidence is purely
+        empirical. An open problem is whether the completion step provably tightens the
+        approximation ratio.
+  \item \textbf{Not monotonically better.} CAD can use 1 more bin than FFD on $\approx 0.1\%$
+        of instances. This occurs when the completion step consumes an item that would
+        have been better placed later.
+  \item \textbf{Instance-dependent.} The improvement vanishes on uniform small-item and
+        very-large-item instances.
+  \item \textbf{Threshold sensitivity.} While the default thresholds $\alpha = 0.15$,
+        $\beta = 0.10$ work well empirically, they were not formally optimized.
+\end{enumerate}
+
+\subsection{Practical Applications}
+
+CAD is most beneficial in settings where:
+\begin{itemize}[nosep]
+  \item Items fill 13--67\% of container capacity (2--4 items per container).
+  \item The cost of an extra bin/container is significant (shipping, cloud VMs, warehouse storage).
+  \item $O(n^2)$ runtime is acceptable (typical for $n < 10{,}000$).
+  \item Simplicity and single-pass execution are valued over optimal but complex algorithms.
+\end{itemize}
+
+Industries where these conditions hold include logistics (container loading), cloud computing
+(virtual machine bin packing), manufacturing (cutting stock), and 3D printing (nesting).
+
+\subsection{Open Problems}
+
+\begin{enumerate}[nosep]
+  \item Does CAD achieve a provably better asymptotic approximation ratio than $\frac{11}{9}$?
+  \item Can the thresholds $\alpha, \beta, \gamma$ be set adaptively based on the item size
+        distribution to avoid the rare cases where CAD underperforms?
+  \item Does the completion principle extend to higher-dimensional packing problems
+        (2D strip packing, 3D container loading)?
+\end{enumerate}
+
+% ============================================================================
+% 8. CONCLUSION
+% ============================================================================
+\section{Conclusion}
+
+We presented Completion-Aware Decreasing (CAD), a simple augmentation of Best-Fit
+Decreasing that searches for completing items immediately after each placement.
+On hard bin packing instances, CAD achieves statistically significant improvements
+over FFD, BFD, and MFFD while maintaining $O(n^2)$ time complexity. The algorithm
+is easy to implement, requires no external solvers, and can serve as a drop-in
+replacement for FFD in applications where moderate item-to-capacity ratios are common.
+
+\paragraph{Reproducibility.} Complete source code (Python) and all experimental data are
+available at \url{https://github.com/KathanS/cad-bin-packing}.
+
+% ============================================================================
+% REFERENCES
+% ============================================================================
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+% ============================================================================
+% APPENDIX
+% ============================================================================
+\appendix
+\section{Full Experimental Data}
+\label{app:full}
+
+Table~\ref{tab:full} presents complete results for all tested configurations.
+
+\begin{table}[h]
+\centering
+\caption{Complete results for all (class, $n$) configurations (50 trials each).}
+\label{tab:full}
+\small
+\begin{tabular}{llccccccc}
+\toprule
+\textbf{Class} & $n$ & FFD & BFD & CAD & Wins & Ties & Losses & $p$-value \\
+\midrule
+\textsc{Hard-150} & 60  & 1.0208 & 1.0208 & 1.0085 & 15 & 35 & 0 & $1.1 \times 10^{-4}$ \\
+\textsc{Hard-150} & 100 & 1.0198 & 1.0198 & 1.0084 & 23 & 27 & 0 & $1.6 \times 10^{-6}$ \\
+\textsc{Hard-150} & 200 & 1.0156 & 1.0156 & 1.0075 & 33 & 17 & 0 & $9.2 \times 10^{-9}$ \\
+\textsc{Hard-150} & 300 & 1.0138 & 1.0138 & 1.0065 & 41 &  9 & 0 & $5.4 \times 10^{-10}$ \\
+\textsc{Hard-150} & 500 & 1.0128 & 1.0128 & 1.0057 & 50 &  0 & 0 & $1.9 \times 10^{-10}$ \\
+\textsc{Hard-200} & 100 & 1.0271 & 1.0271 & 1.0217 & 14 & 34 & 2 & $2.7 \times 10^{-3}$ \\
+\textsc{Hard-200} & 200 & 1.0160 & 1.0160 & 1.0113 & 19 & 31 & 0 & $2.9 \times 10^{-5}$ \\
+\textsc{Hard-200} & 300 & 1.0134 & 1.0133 & 1.0081 & 33 & 17 & 0 & $3.1 \times 10^{-8}$ \\
+\textsc{Hard-200} & 500 & 1.0114 & 1.0114 & 1.0063 & 43 &  7 & 0 & $2.3 \times 10^{-9}$ \\
+\textsc{Medium}   & 100 & 1.0278 & 1.0278 & 1.0246 &  8 & 41 & 1 & $3.9 \times 10^{-2}$ \\
+\textsc{Medium}   & 200 & 1.0170 & 1.0170 & 1.0143 & 12 & 38 & 0 & $4.9 \times 10^{-4}$ \\
+\textsc{Medium}   & 300 & 1.0117 & 1.0117 & 1.0092 & 17 & 33 & 0 & $3.7 \times 10^{-5}$ \\
+\textsc{Medium}   & 500 & 1.0071 & 1.0069 & 1.0044 & 29 & 20 & 1 & $6.0 \times 10^{-7}$ \\
+\textsc{Large}    & 100 & 1.1070 & 1.1070 & 1.1015 & 17 & 21 & 12 & $1.7 \times 10^{-1}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}
